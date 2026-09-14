@@ -1,0 +1,16 @@
+{
+  "name": "react-native-nitro-lunar-range-picker",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix packages/react-native-nitro-lunar-range-picker run build",
+    "codegen": "npm --prefix packages/react-native-nitro-lunar-range-picker run codegen",
+    "release": "npm --prefix packages/react-native-nitro-lunar-range-picker run release",
+    "test:harness": "npm --prefix example run test:harness",
+    "test:harness:android": "npm --prefix example run test:harness:android",
+    "test:harness:ios": "npm --prefix example run test:harness:ios"
+  },
+  "workspaces": [
+    "packages/*",
+    "example"
+  ]
+}

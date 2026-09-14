@@ -1,0 +1,84 @@
+name: Run React Native Harness iOS
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/harness-ios.yml'
+      - 'example/**'
+      - 'packages/react-native-nitro-lunar-range-picker/android/**'
+      - 'packages/react-native-nitro-lunar-range-picker/ios/**'
+      - 'packages/react-native-nitro-lunar-range-picker/cpp/**'
+      - 'packages/react-native-nitro-lunar-range-picker/src/**'
+      - 'packages/react-native-nitro-lunar-range-picker/nitrogen/**'
+      - 'packages/react-native-nitro-lunar-range-picker/*.podspec'
+      - 'packages/react-native-nitro-lunar-range-picker/package.json'
+      - 'bun.lock'
+      - 'pnpm-lock.yaml'
+      - 'package-lock.json'
+      - 'yarn.lock'
+      - 'packages/react-native-nitro-lunar-range-picker/react-native.config.js'
+      - 'packages/react-native-nitro-lunar-range-picker/nitro.json'
+  pull_request:
+    paths:
+      - '.github/workflows/harness-ios.yml'
+      - 'example/**'
+      - 'packages/react-native-nitro-lunar-range-picker/android/**'
+      - 'packages/react-native-nitro-lunar-range-picker/ios/**'
+      - 'packages/react-native-nitro-lunar-range-picker/cpp/**'
+      - 'packages/react-native-nitro-lunar-range-picker/src/**'
+      - 'packages/react-native-nitro-lunar-range-picker/nitrogen/**'
+      - 'packages/react-native-nitro-lunar-range-picker/*.podspec'
+      - 'packages/react-native-nitro-lunar-range-picker/package.json'
+      - 'bun.lock'
+      - 'pnpm-lock.yaml'
+      - 'package-lock.json'
+      - 'yarn.lock'
+      - 'packages/react-native-nitro-lunar-range-picker/react-native.config.js'
+      - 'packages/react-native-nitro-lunar-range-picker/nitro.json'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test iOS Harness
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run codegen and build
+        run: npm run codegen && npm run build
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+
+      - name: Install Pods
+        working-directory: example
+        run: npm run pod
+
+      - name: Build iOS app
+        working-directory: example/ios
+        run: |
+          set -o pipefail && xcodebuild             CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++             -derivedDataPath build -UseModernBuildSystem=YES             -workspace NitroLunarRangePickerExample.xcworkspace             -scheme NitroLunarRangePickerExample             -sdk iphonesimulator             -configuration Debug             build             CODE_SIGNING_ALLOWED=NO
+
+      - name: Run React Native Harness
+        uses: callstackincubator/react-native-harness@v1.2.0
+        with:
+          app: ios/build/Build/Products/Debug-iphonesimulator/NitroLunarRangePickerExample.app
+          runner: ios
+          projectRoot: example
+          packageManager: npm

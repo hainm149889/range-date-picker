@@ -1,0 +1,30 @@
+{
+  "$schema": "https://nitro.margelo.com/nitro.schema.json",
+  "cxxNamespace": [
+    "nitrolunarrangepicker"
+  ],
+  "ios": {
+    "iosModuleName": "NitroLunarRangePicker"
+  },
+  "android": {
+    "androidNamespace": [
+      "nitrolunarrangepicker"
+    ],
+    "androidCxxLibName": "NitroLunarRangePicker"
+  },
+  "autolinking": {
+    "NitroLunarRangePicker": {
+      "ios": {
+        "language": "swift",
+        "implementationClassName": "HybridNitroLunarRangePicker"
+      },
+      "android": {
+        "language": "kotlin",
+        "implementationClassName": "HybridNitroLunarRangePicker"
+      }
+    }
+  },
+  "ignorePaths": [
+    "**/node_modules"
+  ]
+}
