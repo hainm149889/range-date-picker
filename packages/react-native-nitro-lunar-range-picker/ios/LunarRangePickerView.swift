@@ -515,6 +515,6 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
             lunarDayName: endLunar.lunarDayName
         )
 
-        onConfirm?(DateRangeResult(startDate = startDateInfo, endDate = endDateInfo))
+        onConfirm?(DateRangeResult(startDate: startDateInfo, endDate: endDateInfo))
     }
 }
