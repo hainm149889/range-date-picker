@@ -137,6 +137,7 @@ dependencies {
 
   // Add a dependency on NitroModules
   implementation project(":react-native-nitro-modules")
+  implementation "androidx.recyclerview:recyclerview:1.3.2"
 }
 
 if (isNewArchitectureEnabled()) {

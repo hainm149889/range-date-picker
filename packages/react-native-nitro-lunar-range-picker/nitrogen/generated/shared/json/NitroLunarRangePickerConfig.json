@@ -1,0 +1,23 @@
+{
+  "uiViewClassName": "NitroLunarRangePicker",
+  "supportsRawText": false,
+  "bubblingEventTypes": {},
+  "directEventTypes": {},
+  "validAttributes": {
+    "language": true,
+    "theme": true,
+    "showLunarDate": true,
+    "firstDayOfWeek": true,
+    "displayMode": true,
+    "numberOfMonths": true,
+    "startDate": true,
+    "endDate": true,
+    "minDate": true,
+    "maxDate": true,
+    "closeIconUri": true,
+    "confirmIconUri": true,
+    "onConfirm": true,
+    "onClose": true,
+    "hybridRef": true
+  }
+}
