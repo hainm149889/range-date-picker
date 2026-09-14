@@ -1,21 +1,6 @@
 import UIKit
 import NitroModules
 
-enum RangePosition {
-    case none
-    case single
-    case start
-    case middle
-    case end
-}
-
-struct MonthData {
-    let year: Int
-    let month: Int
-    let title: String
-    let days: [Date?]
-}
-
 class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     // Properties từ Nitro Hybrid View
     var language: PickerLanguage = .vi {
@@ -53,7 +38,7 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
     var startDate: String? {
         didSet {
             if let s = startDate, !s.isEmpty {
-                selectedStartDate = parseDateString(s)
+                selectedStartDate = DateUtils.parseDateString(s)
             } else {
                 selectedStartDate = nil
             }
@@ -68,7 +53,7 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
     var endDate: String? {
         didSet {
             if let s = endDate, !s.isEmpty {
-                selectedEndDate = parseDateString(s)
+                selectedEndDate = DateUtils.parseDateString(s)
             } else {
                 selectedEndDate = nil
             }
@@ -77,13 +62,13 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
     }
     var minDate: String? {
         didSet {
-            parsedMinDate = parseDateString(minDate)
+            parsedMinDate = DateUtils.parseDateString(minDate)
             collectionView?.reloadData()
         }
     }
     var maxDate: String? {
         didSet {
-            parsedMaxDate = parseDateString(maxDate)
+            parsedMaxDate = DateUtils.parseDateString(maxDate)
             collectionView?.reloadData()
         }
     }
@@ -273,41 +258,6 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
         }
     }
 
-    private func parseDateString(_ str: String?) -> Date? {
-        guard let str = str?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty else { return nil }
-        
-        // 1. ISO 8601 with fractional seconds
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = isoFormatter.date(from: str) {
-            return Calendar.current.startOfDay(for: date)
-        }
-        
-        // 2. Standard ISO 8601
-        isoFormatter.formatOptions = [.withInternetDateTime]
-        if let date = isoFormatter.date(from: str) {
-            return Calendar.current.startOfDay(for: date)
-        }
-        
-        // 3. YYYY-MM-DD or YYYY/MM/DD
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US_POSIX")
-        for fmt in ["yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "dd-MM-yyyy"] {
-            df.dateFormat = fmt
-            if let date = df.date(from: str) {
-                return Calendar.current.startOfDay(for: date)
-            }
-        }
-        
-        // 4. Epoch timestamp in milliseconds or seconds
-        if let num = Double(str) {
-            let seconds = (num > 10000000000) ? (num / 1000.0) : num
-            return Calendar.current.startOfDay(for: Date(timeIntervalSince1970: seconds))
-        }
-        
-        return nil
-    }
-
     private func heightForSection(_ section: Int) -> CGFloat {
         guard section < monthSections.count else { return 0 }
         let daysCount = monthSections[section].days.count
@@ -359,54 +309,58 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
         // Tháng hiện tại (hoặc baseDate) ở trên cùng, sau đó là các tháng trước đó (-1, -2, ...)
         var monthsList: [Date] = []
         for i in 0..<totalMonths {
-            if let monthDate = calendar.date(byAdding: .month, value: -i, to: baseDate) {
-                monthsList.append(monthDate)
+            if let mDate = calendar.date(byAdding: .month, value: -i, to: baseDate) {
+                monthsList.append(mDate)
             }
         }
-
-        for date in monthsList {
-            let components = calendar.dateComponents([.year, .month], from: date)
-            guard let firstDayOfMonth = calendar.date(from: components),
-                  let range = calendar.range(of: .day, in: .month, for: firstDayOfMonth) else { continue }
+        
+        for mDate in monthsList {
+            let comp = calendar.dateComponents([.year, .month], from: mDate)
+            guard let year = comp.year, let month = comp.month else { continue }
             
-            // Tính số ô trống đầu tháng theo firstDayOfWeek
-            let weekday = calendar.component(.weekday, from: firstDayOfMonth) // 1=Sun, 2=Mon...
-            let leadingEmptyCount: Int
-            if firstDayOfWeek == .monday {
-                leadingEmptyCount = (weekday - 2 + 7) % 7
-            } else {
-                leadingEmptyCount = (weekday - 1) % 7
+            var firstDayComp = DateComponents()
+            firstDayComp.year = year
+            firstDayComp.month = month
+            firstDayComp.day = 1
+            guard let firstDayOfMonth = calendar.date(from: firstDayComp),
+                  let range = calendar.range(of: .day, in: .month, for: firstDayOfMonth) else {
+                continue
             }
             
-            var days: [Date?] = Array(repeating: nil, count: leadingEmptyCount)
-            for day in range {
-                var dayComp = components
-                dayComp.day = day
+            let numberOfDays = range.count
+            let weekdayOfFirstDay = calendar.component(.weekday, from: firstDayOfMonth)
+            
+            let isMonFirst = (firstDayOfWeek == .monday)
+            let leadingEmptyDays = isMonFirst
+                ? (weekdayOfFirstDay - 2 + 7) % 7
+                : (weekdayOfFirstDay - 1) % 7
+            
+            var days: [Date?] = Array(repeating: nil, count: leadingEmptyDays)
+            for d in 1...numberOfDays {
+                var dayComp = DateComponents()
+                dayComp.year = year
+                dayComp.month = month
+                dayComp.day = d
                 if let dayDate = calendar.date(from: dayComp) {
-                    days.append(dayDate)
+                    days.append(DateUtils.cleanToStartOfDay(dayDate))
                 }
             }
             
-            let monthTitle = formatMonthTitle(year: components.year ?? 2026, month: components.month ?? 1)
-            monthSections.append(MonthData(
-                year: components.year ?? 2026,
-                month: components.month ?? 1,
-                title: monthTitle,
-                days: days
-            ))
+            let monthTitle: String
+            switch language {
+            case .vi:
+                monthTitle = "Tháng \(month), \(year)"
+            case .zh:
+                monthTitle = "\(year)年 \(month)月"
+            case .en:
+                let monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                monthTitle = "\(monthNames[month]) \(year)"
+            }
+            
+            monthSections.append(MonthData(year: year, month: month, title: monthTitle, days: days))
         }
         
         collectionView?.reloadData()
-    }
-
-    private func formatMonthTitle(year: Int, month: Int) -> String {
-        switch language {
-        case .vi: return "Tháng \(month), \(year)"
-        case .zh: return "\(year)年 \(month)月"
-        case .en:
-            let monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-            return "\(monthNames[month]) \(year)"
-        }
     }
 
     @objc private func handleClose() {
@@ -440,8 +394,7 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
         let date = monthSections[indexPath.section].days[indexPath.item]
         
         if let date = date {
-            let calendar = Calendar.current
-            let cleanDate = calendar.startOfDay(for: date)
+            let cleanDate = DateUtils.cleanToStartOfDay(date)
             let langStr = language.stringValue
             let lunar = LunarCalendarHelper.convertSolarToLunar(date: cleanDate, language: langStr)
             
@@ -471,16 +424,15 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
     }
 
     private func getRangePosition(for date: Date) -> RangePosition {
-        let calendar = Calendar.current
-        let target = calendar.startOfDay(for: date)
+        let target = DateUtils.cleanToStartOfDay(date)
         
         guard let start = selectedStartDate else { return .none }
-        let cleanStart = calendar.startOfDay(for: start)
+        let cleanStart = DateUtils.cleanToStartOfDay(start)
         
         guard let end = selectedEndDate else {
             return (target == cleanStart) ? .single : .none
         }
-        let cleanEnd = calendar.startOfDay(for: end)
+        let cleanEnd = DateUtils.cleanToStartOfDay(end)
         
         let minD = min(cleanStart, cleanEnd)
         let maxD = max(cleanStart, cleanEnd)
@@ -508,8 +460,7 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let date = monthSections[indexPath.section].days[indexPath.item] else { return }
-        let calendar = Calendar.current
-        let cleanDate = calendar.startOfDay(for: date)
+        let cleanDate = DateUtils.cleanToStartOfDay(date)
         
         // Chặn chọn các ngày bị disable
         if let max = parsedMaxDate, cleanDate > max { return }
@@ -564,245 +515,6 @@ class LunarRangePickerView: UIView, UICollectionViewDataSource, UICollectionView
             lunarDayName: endLunar.lunarDayName
         )
 
-        onConfirm?(DateRangeResult(startDate: startDateInfo, endDate: endDateInfo))
-    }
-}
-
-// MARK: - Section Header View cho từng Tháng
-class MonthHeaderView: UICollectionReusableView {
-    let titleLabel = UILabel()
-    
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
-        titleLabel.textColor = .black
-        addSubview(titleLabel)
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        titleLabel.frame = CGRect(x: 16, y: 4, width: bounds.width - 32, height: bounds.height - 4)
-    }
-}
-
-// MARK: - Custom Cell với Range Highlight & Khoảng cách chữ gọn gàng
-class DayCell: UICollectionViewCell {
-    private let rangeHighlightView = UIView()
-    private let circleBackgroundView = UIView()
-    private let solarLabel = UILabel()
-    private let lunarLabel = UILabel()
-    
-    private var currentPosition: RangePosition = .none
-    private var isShowLunar: Bool = true
-    
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupViews()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupViews() {
-        contentView.clipsToBounds = false
-        
-        // 1. Dải màu nối giữa hai ngày
-        rangeHighlightView.isHidden = true
-        contentView.addSubview(rangeHighlightView)
-        
-        // 2. Vòng tròn/nền nổi bật cho ngày start & end & single
-        circleBackgroundView.isHidden = true
-        contentView.addSubview(circleBackgroundView)
-        
-        // 3. Ngày dương lịch
-        solarLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        solarLabel.textAlignment = .center
-        solarLabel.adjustsFontSizeToFitWidth = false
-        contentView.addSubview(solarLabel)
-        
-        // 4. Ngày âm lịch
-        lunarLabel.font = .systemFont(ofSize: 9, weight: .regular)
-        lunarLabel.textAlignment = .center
-        lunarLabel.lineBreakMode = .byClipping
-        contentView.addSubview(lunarLabel)
-    }
-    
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        clear()
-    }
-    
-    func clear() {
-        currentPosition = .none
-        solarLabel.text = nil
-        lunarLabel.text = nil
-        rangeHighlightView.isHidden = true
-        circleBackgroundView.isHidden = true
-        isUserInteractionEnabled = false
-    }
-    
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateLayout()
-    }
-    
-    private func updateLayout() {
-        let cellW = bounds.width
-        let cellH = bounds.height
-        guard cellW > 0 && cellH > 0 else { return }
-        
-        let badgeSize: CGFloat = min(cellW - 4, 38)
-        let badgeY = (cellH - badgeSize) / 2
-        let badgeX = (cellW - badgeSize) / 2
-        
-        circleBackgroundView.frame = CGRect(x: badgeX, y: badgeY, width: badgeSize, height: badgeSize)
-        circleBackgroundView.layer.cornerRadius = badgeSize / 2
-        circleBackgroundView.layer.masksToBounds = true
-        
-        switch currentPosition {
-        case .none, .single:
-            rangeHighlightView.isHidden = true
-        case .start:
-            rangeHighlightView.isHidden = false
-            rangeHighlightView.frame = CGRect(
-                x: cellW / 2,
-                y: badgeY,
-                width: cellW / 2,
-                height: badgeSize
-            )
-        case .middle:
-            rangeHighlightView.isHidden = false
-            rangeHighlightView.frame = CGRect(
-                x: 0,
-                y: badgeY,
-                width: cellW,
-                height: badgeSize
-            )
-        case .end:
-            rangeHighlightView.isHidden = false
-            rangeHighlightView.frame = CGRect(
-                x: 0,
-                y: badgeY,
-                width: cellW / 2,
-                height: badgeSize
-            )
-        }
-        
-        let hasLunar = isShowLunar && !(lunarLabel.text?.isEmpty ?? true)
-        let solarH: CGFloat = 18
-        let lunarH: CGFloat = 11
-        let spacing: CGFloat = 1.0
-        
-        if hasLunar {
-            let totalH = solarH + spacing + lunarH // 30pt
-            let startY = (cellH - totalH) / 2
-            solarLabel.frame = CGRect(x: 0, y: startY, width: cellW, height: solarH)
-            lunarLabel.frame = CGRect(x: 0, y: startY + solarH + spacing, width: cellW, height: lunarH)
-            lunarLabel.isHidden = false
-        } else {
-            let startY = (cellH - solarH) / 2
-            solarLabel.frame = CGRect(x: 0, y: startY, width: cellW, height: solarH)
-            lunarLabel.isHidden = true
-        }
-    }
-    
-    func configure(
-        date: Date,
-        lunar: LunarDateResult,
-        showLunar: Bool,
-        position: RangePosition,
-        isDisabled: Bool,
-        theme: PickerTheme?
-    ) {
-        let day = Calendar.current.component(.day, from: date)
-        solarLabel.text = "\(day)"
-        lunarLabel.text = showLunar ? lunar.lunarDayName : nil
-        self.isShowLunar = showLunar
-        self.currentPosition = position
-        
-        // Colors
-        let primaryColor = theme?.primaryColor.map { UIColor(hexString: $0) } ?? UIColor(red: 0/255, green: 122/255, blue: 255/255, alpha: 1)
-        let selectedTextColor = theme?.selectedTextColor.map { UIColor(hexString: $0) } ?? .white
-        let textColor = theme?.textColor.map { UIColor(hexString: $0) } ?? .black
-        let specialColor = theme?.specialDayColor.map { UIColor(hexString: $0) } ?? UIColor.systemRed
-        let rangeBgColor = theme?.rangeColor.map { UIColor(hexString: $0) } ?? primaryColor.withAlphaComponent(0.18)
-        
-        circleBackgroundView.backgroundColor = primaryColor
-        rangeHighlightView.backgroundColor = rangeBgColor
-        
-        if isDisabled {
-            isUserInteractionEnabled = false
-            circleBackgroundView.isHidden = true
-            rangeHighlightView.isHidden = true
-            solarLabel.textColor = UIColor.systemGray4
-            lunarLabel.textColor = UIColor.systemGray4
-            lunarLabel.font = .systemFont(ofSize: 9, weight: .regular)
-            updateLayout()
-            return
-        }
-        
-        isUserInteractionEnabled = true
-        
-        switch position {
-        case .none:
-            circleBackgroundView.isHidden = true
-            solarLabel.textColor = textColor
-            
-            // Ngày đặc biệt (mùng 1 & rằm) có màu đỏ
-            if lunar.isSpecialDay {
-                lunarLabel.textColor = specialColor
-                lunarLabel.font = .systemFont(ofSize: 9, weight: .bold)
-            } else {
-                lunarLabel.textColor = UIColor.systemGray
-                lunarLabel.font = .systemFont(ofSize: 9, weight: .regular)
-            }
-            
-        case .single:
-            circleBackgroundView.isHidden = false
-            solarLabel.textColor = selectedTextColor
-            lunarLabel.textColor = selectedTextColor.withAlphaComponent(0.9)
-            lunarLabel.font = .systemFont(ofSize: 9, weight: .medium)
-            
-        case .start:
-            circleBackgroundView.isHidden = false
-            solarLabel.textColor = selectedTextColor
-            lunarLabel.textColor = selectedTextColor.withAlphaComponent(0.9)
-            lunarLabel.font = .systemFont(ofSize: 9, weight: .medium)
-            
-        case .middle:
-            circleBackgroundView.isHidden = true
-            solarLabel.textColor = primaryColor
-            lunarLabel.textColor = primaryColor.withAlphaComponent(0.85)
-            lunarLabel.font = .systemFont(ofSize: 9, weight: .medium)
-            
-        case .end:
-            circleBackgroundView.isHidden = false
-            solarLabel.textColor = selectedTextColor
-            lunarLabel.textColor = selectedTextColor.withAlphaComponent(0.9)
-            lunarLabel.font = .systemFont(ofSize: 9, weight: .medium)
-        }
-        
-        updateLayout()
-    }
-}
-
-// MARK: - Helper Hex Color extension
-extension UIColor {
-    convenience init(hexString: String) {
-        var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if hex.hasPrefix("#") { hex.removeFirst() }
-        var rgbValue: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&rgbValue)
-        self.init(
-            red: CGFloat((rgbValue & 0xFF0000) >> 16) / 255.0,
-            green: CGFloat((rgbValue & 0x00FF00) >> 8) / 255.0,
-            blue: CGFloat(rgbValue & 0x0000FF) / 255.0,
-            alpha: 1.0
-        )
+        onConfirm?(DateRangeResult(startDate = startDateInfo, endDate = endDateInfo))
     }
 }
