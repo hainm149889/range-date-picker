@@ -70,12 +70,11 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
-          working-directory: example
+          working-directory: example/ios
 
       - name: Install Pods
-        working-directory: example
-        run: npm run pod
+        working-directory: example/ios
+        run: pod install
 
       - name: Build iOS app
         working-directory: example/ios
