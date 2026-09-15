@@ -16,8 +16,18 @@ import java.net.URL
 import java.util.Calendar
 import kotlin.concurrent.thread
 
+/// LunarRangePickerView: Giao diện chính của bộ chọn lịch âm dương trên Android (kế thừa LinearLayout dạng đứng).
+/// Quản lý: TopBar (nút Close & Title), Weekday Header (T2..CN), RecyclerView dạng lưới 7 cột chia theo tháng,
+/// và thuật toán chọn khoảng ngày âm dương, theme màu sắc.
 class LunarRangePickerView(context: Context) : LinearLayout(context) {
 
+    // =========================================================================
+    // MARK: - Properties từ Nitro Hybrid View (Giao tiếp với React Native)
+    // =========================================================================
+
+    /// Ngôn ngữ hiển thị (PickerLanguage.VI, EN, ZH). Khi đổi:
+    /// - Vẽ lại thanh thứ trong tuần (T2..CN hoặc Mon..Sun)
+    /// - Tạo lại danh sách các tháng và tiêu đề tháng tương ứng
     var language: PickerLanguage = PickerLanguage.VI
         set(value) {
             field = value
@@ -25,18 +35,21 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             rebuildCalendarData()
         }
 
+    /// Theme màu sắc truyền từ React Native (primaryColor, backgroundColor, textColor...)
     var theme: PickerTheme? = null
         set(value) {
             field = value
             applyTheme()
         }
 
+    /// Cờ bật/tắt hiển thị dòng chữ ngày âm lịch
     var showLunarDate: Boolean = true
         set(value) {
             field = value
             adapter.notifyDataSetChanged()
         }
 
+    /// Ngày bắt đầu tuần (MONDAY hoặc SUNDAY)
     var firstDayOfWeek: FirstDayOfWeek = FirstDayOfWeek.MONDAY
         set(value) {
             field = value
@@ -44,18 +57,22 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             rebuildCalendarData()
         }
 
+    /// Chế độ hiển thị: MULTI (cuộn dọc nhiều tháng) hoặc SINGLE (chỉ hiển thị 1 tháng)
     var displayMode: DisplayMode = DisplayMode.MULTI
         set(value) {
             field = value
             rebuildCalendarData()
         }
 
+    /// Số lượng tháng hiển thị trong chế độ MULTI (Mặc định: 12 tháng)
+    /// -> Muốn đổi số tháng: truyền prop numberOfMonths từ React Native
     var numberOfMonths: Double = 12.0
         set(value) {
             field = value
             rebuildCalendarData()
         }
 
+    /// Ngày bắt đầu được chọn (chuỗi ISO hoặc YYYY-MM-DD)
     var startDate: String? = null
         set(value) {
             field = value
@@ -68,6 +85,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             }
         }
 
+    /// Ngày kết thúc được chọn (chuỗi ISO hoặc YYYY-MM-DD)
     var endDate: String? = null
         set(value) {
             field = value
@@ -75,6 +93,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             adapter.notifyDataSetChanged()
         }
 
+    /// Ngày tối thiểu cho phép chọn (các ngày trước minDate sẽ bị disable)
     var minDate: String? = null
         set(value) {
             field = value
@@ -82,6 +101,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             adapter.notifyDataSetChanged()
         }
 
+    /// Ngày tối đa cho phép chọn (các ngày sau maxDate sẽ bị disable)
     var maxDate: String? = null
         set(value) {
             field = value
@@ -89,34 +109,59 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             adapter.notifyDataSetChanged()
         }
 
+    /// Đường dẫn URI ảnh icon Close tùy chỉnh từ JS (local asset hoặc link mạng)
     var closeIconUri: String? = null
         set(value) {
             field = value
             loadCloseIcon()
         }
 
+    /// Đường dẫn URI icon Confirm tùy chỉnh
     var confirmIconUri: String? = null
 
+    /// Callback gọi về React Native khi chọn xong ngày (trả về DateRangeResult)
     var onConfirm: ((DateRangeResult) -> Unit)? = null
+    
+    /// Callback gọi về React Native khi bấm nút Close
     var onClose: (() -> Unit)? = null
+
+    // =========================================================================
+    // MARK: - State nội bộ (Internal State)
+    // =========================================================================
 
     private var parsedMinDate: Calendar? = null
     private var parsedMaxDate: Calendar? = null
     private var selectedStartDate: Calendar? = null
     private var selectedEndDate: Calendar? = null
 
+    /// Danh sách các item trong danh sách (gồm MonthHeader và Day)
     private val items = ArrayList<CalendarItem>()
     private val adapter: CalendarAdapter
     private val layoutManager: GridLayoutManager
 
-    // UI elements
+    // =========================================================================
+    // MARK: - Khai báo UI Elements
+    // =========================================================================
+
+    /// Thanh tiêu đề phía trên cùng
     private val topBarLayout: FrameLayout
+    
+    /// Nhãn hiển thị tiêu đề ("Chọn ngày")
     private val titleTextView: TextView
+    
+    /// Nút Close mặc định dạng chữ TextView ("✕")
     private val closeButton: TextView
+    
+    /// Nút Close dạng hình ảnh ImageView (hiển thị khi có closeIconUri)
     private val closeImageView: ImageView
+    
+    /// Thanh ngang chứa 7 thứ trong tuần (T2..CN)
     private val weekdayHeaderLayout: LinearLayout
+    
+    /// Danh sách hiển thị lịch 7 cột
     private val recyclerView: RecyclerView
 
+    /// Fix lỗi hiển thị layout trong React Native Fabric / Paper khi view con cần đo lại kích thước
     private val measureAndLayout = Runnable {
         measure(
             MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
@@ -130,27 +175,38 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         post(measureAndLayout)
     }
 
+    // =========================================================================
+    // MARK: - Khởi tạo Giao diện & Hằng số Kích thước (Init & Layout Dimensions)
+    // =========================================================================
+
     init {
         orientation = VERTICAL
         setBackgroundColor(Color.WHITE)
 
+        // Hệ số quy đổi dp sang pixel
         val dp = context.resources.displayMetrics.density
 
-        // 1. Top Bar (44dp)
+        // --- 1. THANH TIÊU ĐỀ TOP BAR (44dp) ---
+        // - Chiều cao: (44 * dp).toInt() = 44dp (tương đương chuẩn UINavigationBar iOS)
+        // -> Muốn thanh bar cao hơn: tăng lên 48 hoặc 52dp
         topBarLayout = FrameLayout(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, (44 * dp).toInt())
         }
 
+        // Nhãn Tiêu đề (Title):
         titleTextView = TextView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             ).apply {
                 gravity = Gravity.CENTER
+                // marginStart & marginEnd = 48dp: Chừa 48dp hai bên lề
+                // để tiêu đề luôn nằm chính giữa thanh bar và không bị đè lên nút Close
                 marginStart = (48 * dp).toInt()
                 marginEnd = (48 * dp).toInt()
             }
             gravity = Gravity.CENTER
+            // - textSize = 16f: Cỡ chữ tiêu đề 16sp
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.BLACK)
@@ -158,13 +214,20 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         }
         topBarLayout.addView(titleTextView)
 
+        // Nút Đóng Close mặc định (dạng chữ TextView):
         closeButton = TextView(context).apply {
+            // - width = 48dp, height = 48dp: Diện tích chạm chuẩn 48dp của Android Accessibility
             layoutParams = FrameLayout.LayoutParams((48 * dp).toInt(), (48 * dp).toInt()).apply {
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
             }
             gravity = Gravity.CENTER
+            // - text = "✕": Ký tự đóng mặc định
+            // -> Muốn đổi ký tự đóng (ví dụ chữ "X" hoặc "Đóng"): sửa tại đây
             text = "✕"
+            // - textSize = 20f: Cỡ chữ ký tự đóng 20sp
+            // -> Muốn ký tự to/nhỏ hơn: sửa 20f
             textSize = 20f
+            // - setTextColor(Color.GRAY): Màu xám mặc định
             setTextColor(Color.GRAY)
             isClickable = true
             isFocusable = true
@@ -173,6 +236,8 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         topBarLayout.addView(closeButton)
         closeButton.bringToFront()
 
+        // Nút Đóng Close dạng ảnh (ImageView):
+        // Mặc định ẩn (GONE), chỉ hiện khi người dùng truyền prop closeIconUri
         closeImageView = ImageView(context).apply {
             layoutParams = FrameLayout.LayoutParams((48 * dp).toInt(), (48 * dp).toInt()).apply {
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
@@ -188,7 +253,9 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
 
         addView(topBarLayout)
 
-        // 2. Weekday Header (30dp)
+        // --- 2. THANH THỨ TRONG TUẦN (WEEKDAY HEADER) ---
+        // - Chiều cao: (30 * dp).toInt() = 30dp
+        // -> Muốn thanh thứ dày hơn: tăng 30 lên 34 hoặc 36dp
         weekdayHeaderLayout = LinearLayout(context).apply {
             orientation = HORIZONTAL
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, (30 * dp).toInt())
@@ -197,10 +264,13 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         addView(weekdayHeaderLayout)
         setupWeekdayHeader()
 
-        // 3. RecyclerView with 7 columns
+        // --- 3. LƯỚI LỊCH RECYCLERVIEW VỚI 7 CỘT ---
+        // Sử dụng GridLayoutManager với số cột cố định spanCount = 7
         layoutManager = GridLayoutManager(context, 7).apply {
             spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                 override fun getSpanSize(position: Int): Int {
+                    // Nếu là MonthHeader: chiếm trọn 7 cột (full-width)
+                    // Nếu là Day: chiếm 1 cột
                     return if (position < items.size && items[position] is CalendarItem.MonthHeader) 7 else 1
                 }
             }
@@ -223,6 +293,8 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             layoutManager = this@LunarRangePickerView.layoutManager
             adapter = this@LunarRangePickerView.adapter
             clipToPadding = false
+            // - top padding = 8dp: Đệm trên đầu danh sách
+            // - bottom padding = 20dp: Đệm dưới đáy danh sách
             setPadding(0, (8 * dp).toInt(), 0, (20 * dp).toInt())
         }
         addView(recyclerView)
@@ -230,6 +302,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         rebuildCalendarData()
     }
 
+    /// Khi View gắn vào màn hình: tự động cuộn đến tháng của ngày được chọn
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (displayMode == DisplayMode.SINGLE) {
@@ -258,6 +331,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         }
     }
 
+    /// Xây dựng thanh nhãn thứ trong tuần (T2..CN hoặc CN..T7)
     private fun setupWeekdayHeader() {
         weekdayHeaderLayout.removeAllViews()
         val isMonFirst = (firstDayOfWeek == FirstDayOfWeek.MONDAY)
@@ -271,16 +345,19 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             val tv = TextView(context).apply {
                 layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 1.0f)
                 gravity = Gravity.CENTER
+                // - textSize = 12f: Cỡ chữ thứ 12sp
                 textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
                 text = names[i]
                 val isSunday = if (isMonFirst) (i == 6) else (i == 0)
+                // Chủ Nhật: Đỏ #E53935, các ngày khác: Xám #8E8E93
                 setTextColor(if (isSunday) Color.parseColor("#E53935") else Color.parseColor("#8E8E93"))
             }
             weekdayHeaderLayout.addView(tv)
         }
     }
 
+    /// Áp dụng màu sắc giao diện (Theme) khi nhận được từ React Native
     private fun applyTheme() {
         theme?.backgroundColor?.let {
             val color = ColorUtils.parseHexColor(it, Color.WHITE)
@@ -294,6 +371,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         adapter.notifyDataSetChanged()
     }
 
+    /// Tải hình ảnh icon Close từ URI chạy trên background thread
     private fun loadCloseIcon() {
         val uri = closeIconUri ?: return
         thread {
@@ -303,14 +381,15 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
                 post {
                     closeImageView.setImageBitmap(bitmap)
                     closeImageView.visibility = VISIBLE
-                    closeButton.visibility = GONE
+                    closeButton.visibility = GONE // Ẩn nút text mặc định khi đã có ảnh
                 }
             } catch (e: Exception) {
-                // Keep default text button
+                // Nếu lỗi thì giữ nguyên nút text "✕"
             }
         }
     }
 
+    /// Cuộn danh sách đến vị trí tháng của ngày bắt đầu
     fun scrollToSelectedDate() {
         if (displayMode != DisplayMode.MULTI) return
         val start = selectedStartDate ?: return
@@ -325,6 +404,11 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         }
     }
 
+    // =========================================================================
+    // MARK: - Tạo dữ liệu Lịch (Calendar Data Generation)
+    // =========================================================================
+
+    /// Sinh danh sách dữ liệu các tháng và các ngày tương ứng
     private fun rebuildCalendarData() {
         items.clear()
         val today = Calendar.getInstance()
@@ -333,6 +417,8 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         val totalMonths = if (displayMode == DisplayMode.MULTI) maxOf(1, numberOfMonths.toInt()) else 1
         val baseCal = (if (displayMode == DisplayMode.SINGLE && selectedStartDate != null) selectedStartDate!!.clone() as Calendar else today.clone() as Calendar)
 
+        // Duyệt lùi numberOfMonths tháng bắt đầu từ baseCal (-i)
+        // -> Muốn duyệt tiến về tương lai: đổi -i thành +i
         for (i in 0 until totalMonths) {
             val monthCal = baseCal.clone() as Calendar
             monthCal.add(Calendar.MONTH, -i)
@@ -343,7 +429,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             val month = monthCal.get(Calendar.MONTH) + 1
             val maxDay = monthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
 
-            // Month Header
+            // 1. Thêm Header của tháng vào danh sách
             val monthTitle = when (language) {
                 PickerLanguage.VI -> "Tháng $month, $year"
                 PickerLanguage.ZH -> "${year}年 ${month}月"
@@ -354,7 +440,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             }
             items.add(CalendarItem.MonthHeader(year, month, monthTitle))
 
-            // Leading empty days
+            // 2. Chèn các ô trống ở đầu tháng (Leading empty days)
             val firstDayOfWeekInt = monthCal.get(Calendar.DAY_OF_WEEK) // 1=Sun, 2=Mon...
             val isMonFirst = (firstDayOfWeek == FirstDayOfWeek.MONDAY)
             val leadingEmptyCount = if (isMonFirst) {
@@ -367,7 +453,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
                 items.add(CalendarItem.Day(null))
             }
 
-            // Days in month
+            // 3. Thêm các ngày thực tế trong tháng
             for (day in 1..maxDay) {
                 val dayCal = monthCal.clone() as Calendar
                 dayCal.set(Calendar.DAY_OF_MONTH, day)
@@ -379,10 +465,15 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         adapter.notifyDataSetChanged()
     }
 
+    // =========================================================================
+    // MARK: - Logic Phân Loại Vị Trí Khoảng Chọn (Range Position Logic)
+    // =========================================================================
+
     private fun getRangePosition(date: Calendar): RangePosition {
         val start = selectedStartDate ?: return RangePosition.NONE
         val end = selectedEndDate
 
+        // Chưa có ngày kết thúc hoặc 2 ngày trùng nhau -> SINGLE
         if (end == null || DateUtils.isSameDay(start, end)) {
             return if (DateUtils.isSameDay(date, start)) RangePosition.SINGLE else RangePosition.NONE
         }
@@ -398,10 +489,15 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         }
     }
 
+    // =========================================================================
+    // MARK: - Logic Xử Lý Click Chọn Ngày (Day Click Logic)
+    // =========================================================================
+
     private fun onDayClicked(date: Calendar, clickedCellView: DayCellView? = null) {
         val cleanDate = date.clone() as Calendar
         DateUtils.cleanToStartOfDay(cleanDate)
 
+        // Bỏ qua nếu ngày nằm ngoài minDate / maxDate
         parsedMaxDate?.let { if (DateUtils.isAfterDay(cleanDate, it)) return }
         parsedMinDate?.let { if (DateUtils.isBeforeDay(cleanDate, it)) return }
 
@@ -409,6 +505,8 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         val startCal: Calendar
         val endCal: Calendar
 
+        // THUẬT TOÁN CHỌN KHOẢNG:
+        // 1. Nếu chưa có start HOẶC đã có đủ cả start & end -> Bắt đầu lượt chọn mới
         if (selectedStartDate == null || (selectedStartDate != null && selectedEndDate != null)) {
             selectedStartDate = cleanDate
             selectedEndDate = null
@@ -417,6 +515,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             endCal = cleanDate
         } else {
             val start = selectedStartDate!!
+            // 2. Nếu người dùng bấm ngày nhỏ hơn start -> Đổi ngày đó làm start mới
             if (DateUtils.isBeforeDay(cleanDate, start)) {
                 selectedStartDate = cleanDate
                 selectedEndDate = null
@@ -424,6 +523,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
                 startCal = cleanDate
                 endCal = cleanDate
             } else {
+                // 3. Người dùng chọn ngày >= start -> Hoàn tất chọn khoảng!
                 selectedEndDate = cleanDate
                 isRangeCompleted = true
                 startCal = start
@@ -431,7 +531,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             }
         }
 
-        // 1. Cập nhật tức thì ô cell vừa click ngay trong frame này (0ms delay)
+        // Cập nhật tức thì ô cell vừa bấm (0ms delay) để người dùng thấy phản hồi ngay
         clickedCellView?.let { cell ->
             val newPos = getRangePosition(cleanDate)
             cell.configure(
@@ -444,11 +544,14 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
             )
         }
 
-        // 2. Ép RecyclerView re-bind ngay lập tức tất cả các item trên màn hình
+        // Cập nhật lại toàn bộ danh sách để vẽ dải màu nối
         adapter.notifyItemRangeChanged(0, items.size)
         recyclerView.invalidate()
 
-        // 3. Nếu đã chọn xong khoảng ngày (start + end):
+        // Nếu đã hoàn tất chọn khoảng:
+        // - delay 300ms: Cho người dùng nhìn thấy hiệu ứng dải màu được vẽ hoàn chỉnh
+        // trước khi đóng modal hoặc trả kết quả về React Native
+        // -> Muốn phản hồi nhanh hơn: giảm 300ms về 150ms hoặc 200ms
         if (isRangeCompleted) {
             postDelayed({
                 dispatchConfirmResult(startCal, endCal)
@@ -456,6 +559,7 @@ class LunarRangePickerView(context: Context) : LinearLayout(context) {
         }
     }
 
+    /// Đóng gói dữ liệu kết quả DateRangeResult gửi về React Native
     private fun dispatchConfirmResult(start: Calendar, end: Calendar) {
         val langStr = getLanguageCode()
 
